@@ -1,0 +1,110 @@
+---
+# tasks file for sonobuoy
+
+#
+# This role installs sonobuoy for the purpose of conducting a 'smoke test' of
+# a k8s environment.
+#
+# Sonobuoy will gather *a lot* of data. But the only data we query for the smoke
+# test is the final result of the end-to-end test. That is found in the e2e log
+# here:
+#      sonobuoy/results/plugins/e2e/results/e2e.log
+#
+# If the test result is a failure, query this log for additional information to
+# explain the failure.
+#
+#
+- name: Figure out if we already have sonobuoy installed
+  stat:
+    path: sonobuoy
+  register: sonobuoy_installed
+
+- name: Download sonobuoy
+  git:
+    repo: 'https://github.com/heptio/sonobuoy.git'
+    dest: sonobuoy
+#    version: v0.8.2
+  when: sonobuoy_installed.stat.isdir is not defined
+
+- name: Is RBAC enabled?
+  shell: "/opt/bin/kubectl api-versions | grep --count 'rbac.authorization.k8s.io/v1beta1'"
+  register: rbac_enabled
+
+- name: Capture output of sonobuoy status
+  shell: "/opt/bin/kubectl get pods -l component=sonobuoy --namespace=heptio-sonobuoy"
+  register: sonobuoy_started
+
+- name: Search output to see if sonobuoy is already running
+  debug:
+    msg: "sonobuoy stdout: {{sonobuoy_started.stdout}}"
+
+- name: Stop sonobuoy if needed
+  block:
+     - name: Stop sonobuoy if left from previous run
+       shell: "/opt/bin/kubectl delete -f examples/quickstart/aggregate.yaml"
+       args:
+          chdir: sonobuoy/
+
+     - name: Pause for cleanup after stopping from previous run
+       pause:
+         minutes: 2
+  when: '"sonobuoy" in sonobuoy_started.stdout'
+
+- name: Ensure we stop sonobuoy no matter what happens
+  block:
+     - name: Start sonobuoy
+       shell: "/opt/bin/kubectl apply -f ./examples/quickstart/aggregate.yaml"
+       environment:
+         RBAC_ENABLED: "{{ rbac_enabled }}"
+       args:
+         chdir: sonobuoy/
+
+     # This is due to sonobuoy bug #30.  Sometimes, it doesn't start correctly.
+     # Give sonobuoy 2 minutes.  If it isn't working within that time, bail.
+     - name: Verify sonobuoy started correctly
+       shell: "/opt/bin/kubectl logs sonobuoy --namespace=heptio-sonobuoy"
+       register: result
+       until: result.stdout.find("Listening for incoming results") != -1
+       retries: 2
+       delay: 60
+
+     - name: Wait until we complete our tests - this can take up to 20 minutes
+       shell: "/opt/bin/kubectl logs sonobuoy --namespace=heptio-sonobuoy"
+       register: result
+       until: result.stdout.find("no-exit was specified, sonobuoy is now blocking") != -1
+       retries: 30
+       delay: 60
+
+     - name: Copying the test results
+       shell: "/opt/bin/kubectl cp heptio-sonobuoy/sonobuoy:/tmp/sonobuoy ./results --namespace=heptio-sonobuoy"
+       args:
+         chdir: sonobuoy/
+
+     # Use 'tar' utility here because the fancy jinja2 construct we initially
+     # tried would not work with some backlevel versions of Ansible.
+     - name: Find and untar file with e2e test results contained in it
+       shell: "tar -xvf $(ls -t *.tar.gz | head -1)"
+       args:
+         chdir: sonobuoy/results
+       register: found_file
+
+     - name: Get the end-to-end test result
+       shell: "tail -1 sonobuoy/results/plugins/e2e/results/e2e.log"
+       register: e2e_final_result
+
+     - name: The smoke test results
+       debug:
+         msg: "The smoke test result is: {{e2e_final_result.stdout}}"
+
+     - name: Fail the test if the word FAIL is detected in e2e log
+       fail:
+         msg: "The smoke test result is: {{e2e_final_result.stdout}}"
+       when: '"FAIL" in e2e_final_result.stdout'
+
+  always:
+     - name: Stop sonobuoy
+       shell: "/opt/bin/kubectl delete -f examples/quickstart/aggregate.yaml"
+       args:
+         chdir: sonobuoy/
+
+
