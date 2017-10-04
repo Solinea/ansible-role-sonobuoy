@@ -1,9 +1,6 @@
 # ansible-role-sonobuoy
 
-
-
-
-This role installs [sonobuoy](https://github.com/heptio/sonobuoy) for the purpose of conducting a 'smoke test' of a k8s environment.
+This role installs Heptio's [sonobuoy](https://github.com/heptio/sonobuoy) for the purpose of conducting a 'smoke test' of a k8s environment.
 
 Sonobuoy will gather *a lot* of data. But the only data we query for the smoke test is the final result of the end-to-end test. That is found in the e2e log here:
 ```commandline
