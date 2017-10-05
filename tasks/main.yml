@@ -41,7 +41,7 @@
 - name: Stop sonobuoy if needed
   block:
      - name: Stop sonobuoy if left from previous run
-       shell: "/opt/bin/kubectl delete -f examples/quickstart/aggregate.yaml"
+       shell: "/opt/bin/kubectl delete -f examples/quickstart.yaml"
        args:
           chdir: sonobuoy/
 
@@ -53,7 +53,7 @@
 - name: Ensure we stop sonobuoy no matter what happens
   block:
      - name: Start sonobuoy
-       shell: "/opt/bin/kubectl apply -f ./examples/quickstart/aggregate.yaml"
+       shell: "/opt/bin/kubectl apply -f ./examples/quickstart.yaml"
        environment:
          RBAC_ENABLED: "{{ rbac_enabled }}"
        args:
@@ -103,7 +103,7 @@
 
   always:
      - name: Stop sonobuoy
-       shell: "/opt/bin/kubectl delete -f examples/quickstart/aggregate.yaml"
+       shell: "/opt/bin/kubectl delete -f examples/quickstart.yaml"
        args:
          chdir: sonobuoy/
 
